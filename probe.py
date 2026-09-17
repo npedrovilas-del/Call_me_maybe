@@ -11,3 +11,15 @@ print("len(logits):", len(logits))
 print("before:", m.decode([ids]))
 print("next id", next_id)
 print("model: ", m.decode([next_id]))
+
+with open(m.get_path_to_vocab_file()) as f:
+    raw = json.load(f)
+print(len(raw))
+
+print(type(raw))
+items = list(raw.items())
+f = 0
+for token, k in items:
+    if "Ġ" in token:
+        f += 1
+print(f)

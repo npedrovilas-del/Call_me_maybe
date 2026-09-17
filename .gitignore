@@ -11,3 +11,7 @@ guia_call_me_maybe.txt
 en.subject (1).pdf
 data.zip
 llm_sdk_extracted/
+
+# Scripts de verificação locais (não fazem parte do projeto)
+check_vocab.py
+check_cache.py

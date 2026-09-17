@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.pytest_cache/
+data/output/
+
+# Documentos de estudo / guias (não fazem parte do projeto)
+guia_call_me_maybe.txt
+*.odt
+en.subject (1).pdf
+data.zip
+llm_sdk_extracted/

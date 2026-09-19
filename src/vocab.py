@@ -10,8 +10,8 @@ def bytes_to_unicode():
     Returns a dict {byte: character}."""
     bs = list(range(ord("!"), ord("~") + 1)) + \
         list(range(ord("¡"), ord("¬") + 1)) + \
-        list(range(ord("®"), ord("ÿ") + 1))  # Adds all the visible carachters to a dict of lists
-    cs = bs[:] # Make a copy not connected to bs
+        list(range(ord("®"), ord("ÿ") + 1))
+    cs = bs[:]
     n = 0
     for b in range(256):
         if b not in bs:
@@ -45,7 +45,7 @@ def build_token_text(path: str) -> list[str]:
     return token_text
 
 
-@lru_cache(maxsize=None) # return the same value as the first time in this case the token_text of the get token text
+@lru_cache(maxsize=None)
 def get_token_text(model) -> list[str]:
     """Builds token_text once (cached) and checks its size against the model. 
     The token_text is gonna be all the tokens already decoded to normal chr"""

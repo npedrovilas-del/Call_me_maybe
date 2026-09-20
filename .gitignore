@@ -15,7 +15,6 @@ llm_sdk_extracted/
 .*.~lock.*#
 
 # Dependência externa do subject (SDK Qwen — não é código nosso)
-llm_sdk/
 
 # Scripts de verificação locais (não fazem parte do projeto)
 check_vocab.py
@@ -26,3 +25,7 @@ src/fake_model.py
 test.py
 test_pipeline.py
 demo_marco5.py
+demo_marco6.py
+test_grammars.py
+test_io.py
+test_vocab.py

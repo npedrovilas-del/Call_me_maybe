@@ -3,7 +3,8 @@ import json
 from llm_sdk import Small_LLM_Model
 from functools import lru_cache
 
-def bytes_to_unicode():
+
+def bytes_to_unicode() -> dict[int, str]:
     """Builds an ASCII-like table of all 256 bytes.
     Every byte becomes a printable character: the visible ones keep their
     normal character, and the non-visible ones are shifted to chr(256 + n).
@@ -17,7 +18,7 @@ def bytes_to_unicode():
         if b not in bs:
             bs.append(b)
             cs.append(256 + n)
-            n += 1 
+            n += 1
     return dict(zip(bs, [chr(c) for c in cs]))
 
 
@@ -46,8 +47,8 @@ def build_token_text(path: str) -> list[str]:
 
 
 @lru_cache(maxsize=None)
-def get_token_text(model) -> list[str]:
-    """Builds token_text once (cached) and checks its size against the model. 
+def get_token_text(model: Small_LLM_Model) -> list[str]:
+    """Builds token_text once (cached) and checks its size against the model.
     The token_text is gonna be all the tokens already decoded to normal chr"""
     token_text = build_token_text(model.get_path_to_vocab_file())
     n_logits = len(model.get_logits_from_input_ids([0]))

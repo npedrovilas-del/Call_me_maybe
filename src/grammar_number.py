@@ -12,12 +12,12 @@ BOARD: dict[str, dict[str, str]] = {
         "6": "I", "7": "I", "8": "I", "9": "I",   # -5 -> I
     },
 
-    "Z": { # Can be final
+    "Z": {
         ".": "D",   # 0. -> D
         "e": "E",   # 0e -> E
         "E": "E",   # 0E -> E
     },
-    "I": { # Can be final
+    "I": {
         "0": "I", "1": "I", "2": "I", "3": "I", "4": "I",
         "5": "I", "6": "I", "7": "I", "8": "I", "9": "I",  # 12->123
         ".": "D",   # 12. -> D
@@ -28,7 +28,7 @@ BOARD: dict[str, dict[str, str]] = {
         "0": "F", "1": "F", "2": "F", "3": "F", "4": "F",
         "5": "F", "6": "F", "7": "F", "8": "F", "9": "F",  # 12.5 -> F
     },
-    "F": { # Can be final
+    "F": {
         "0": "F", "1": "F", "2": "F", "3": "F", "4": "F",
         "5": "F", "6": "F", "7": "F", "8": "F", "9": "F",  # 12.55 -> F
         "e": "E",   # 12.5e -> E
@@ -44,18 +44,21 @@ BOARD: dict[str, dict[str, str]] = {
         "0": "X", "1": "X", "2": "X", "3": "X", "4": "X",
         "5": "X", "6": "X", "7": "X", "8": "X", "9": "X",  # 12e+5 -> X
     },
-    "X": { # Can be final
+    "X": {
         "0": "X", "1": "X", "2": "X", "3": "X", "4": "X",
         "5": "X", "6": "X", "7": "X", "8": "X", "9": "X",  # 12e+50 -> X
     },
 }
 
-ACCEPT: set[str] = {"X", "F", "I", "Z"} # the possible finals
+ACCEPT: set[str] = {"X", "F", "I", "Z"}     # the possible finals
 
-def num_state(text: str) -> Optional[str]: # Optional or can be None
+
+def num_state(text: str) -> Optional[str]:  # Optional or can be None
     """Returns and loops through the text to find if is valid the text"""
     state: Optional[str] = "S"
     for char in text:
+        if state is None:
+            return None
         state = BOARD[state].get(char)
         if state is None:
             return None

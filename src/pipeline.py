@@ -1,7 +1,9 @@
 import math
-from collections.abc import Callable
-
 import numpy as np
+
+from collections.abc import Callable
+from llm_sdk import Small_LLM_Model
+
 
 def masked_argmax(logits: list[float], valid: list[int]) -> int | None:
     """Picks the valid token with the highest logit, ignoring the rest.
@@ -14,7 +16,11 @@ def masked_argmax(logits: list[float], valid: list[int]) -> int | None:
             best, best_id = logits[t], t
     return best_id
 
-def top_down_argmax(logits: list[float], token_text: list[str], buffer: str, is_valid: Callable[[str], bool]) -> tuple[int, float] | None:
+
+def top_down_argmax(
+    logits: list[float], token_text: list[str], buffer: str,
+    is_valid: Callable[[str], bool],
+) -> tuple[int, float] | None:
     """First valid token found when scanning from the highest logit down.
     The model's top vote wins as long as the grammar accepts it; otherwise we
     fall to the next candidate. Returns (id, logit) or None if nothing valid
@@ -26,7 +32,11 @@ def top_down_argmax(logits: list[float], token_text: list[str], buffer: str, is_
             return int(t), logits[int(t)]
     return None
 
-def generate_free_field(model,ids: list[int], token_text: list[str], is_valid: Callable[[str], bool], max_tokens: int = 256,) -> tuple[list[int], str]:
+
+def generate_free_field(
+    model: Small_LLM_Model, ids: list[int], token_text: list[str],
+    is_valid: Callable[[str], bool], max_tokens: int = 256,
+) -> tuple[list[int], str]:
     """Generates a free text field token by token, only allowing valid tokens.
     is_valid receives (buffer + candidate): the accumulated text plus the
     candidate token text. Returns (ids generated, text generated).

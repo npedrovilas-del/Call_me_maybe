@@ -23,5 +23,13 @@ dev = [
 package = false
 
 [tool.mypy]
-python_version = "3.10"
-exclude = ["llm_sdk"]
+python_version = "3.12"
+exclude = ["llm_sdk", ".venv"]
+
+[[tool.mypy.overrides]]
+module = "llm_sdk"
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["test_io", "test_pipeline", "test_grammars", "test_vocab"]
+ignore_missing_imports = true

@@ -1,26 +1,28 @@
 import json
 
+from llm_sdk import Small_LLM_Model
 from src.grammar_enum import enum_can_continue
 from src.pipeline import generate_free_field
 from src.grammar_number import num_can_continue, num_state, num_is_complete
-from src.pipeline import generate_free_field, top_down_argmax
+from src.pipeline import top_down_argmax
 from src.grammar_string import str_can_continue, str_state
 from src.models import FunctionDef
 
 GRAMMARS = {
-    "number":  lambda full: num_can_continue(num_state(full)),
-    "string":  lambda full: str_can_continue(full),
+    "number": lambda full: num_can_continue(num_state(full)),
+    "string": lambda full: str_can_continue(full),
     "boolean": lambda full: enum_can_continue(full, ["true", "false"]),
 }
 
 
-def to_ids(model, text: str) -> list[int]:
+def to_ids(model: Small_LLM_Model, text: str) -> list[int]:
     """Encodes a text into token ids, ready to append to the stream.
     The structure text (keys, quotes, braces) is known beforehand, so unlike
     the free zones we don't have to guess it token by token — encode() does
     the splitting for us.
     """
-    return model.encode(text).tolist()[0]
+    ids: list[int] = model.encode(text).tolist()[0]
+    return ids
 
 
 def decode_ids(ids: list[int], token_text: list[str]) -> str:
@@ -30,7 +32,8 @@ def decode_ids(ids: list[int], token_text: list[str]) -> str:
     """
     return "".join(token_text[i] for i in ids)
 
-def build_prompt(functions, prompt) -> str:
+
+def build_prompt(functions: list[FunctionDef], prompt: str) -> str:
     """Builds the first context based on the prompt to start
     the machine generation output"""
     system = (
@@ -39,13 +42,17 @@ def build_prompt(functions, prompt) -> str:
         "Choose ONE of the functions above and fill the arguments correctly."
     )
     catalog = json.dumps([f.model_dump() for f in functions], indent=2)
-    user = "USER: " + prompt    
+    user = "USER: " + prompt
     final = system + "\n\n" + catalog + "\n\n" + user
     return final
 
-def generate_call(model, base_ids: list[int], prompt: str,
-                  functions: list[FunctionDef], token_text: list[str]) -> dict[str, object]:
-    """Builds the output JSON for one prompt: forced structure + generated zones.
+
+def generate_call(
+    model: Small_LLM_Model, base_ids: list[int], prompt: str,
+    functions: list[FunctionDef], token_text: list[str],
+) -> dict[str, object]:
+    """Builds the output JSON for one prompt: forced structure + generated
+    zones.
     The skeleton ('{"prompt":', keys, quotes, closing braces) is appended
     manually; the function name and each parameter value come from the model,
     constrained by the enum / number / string grammars.
@@ -75,10 +82,16 @@ def generate_call(model, base_ids: list[int], prompt: str,
         )
         ids += value_ids
     ids += to_ids(model, "}}")
-    out_text = decode_ids(ids[len(base_ids):], token_text)  
-    return json.loads(out_text)
+    out_text = decode_ids(ids[len(base_ids):], token_text)
+    obj = json.loads(out_text)
+    assert isinstance(obj, dict)
+    return obj
 
-def generate_value(model, ids, token_text, value_type, last=False) -> list[int]:
+
+def generate_value(
+    model: Small_LLM_Model, ids: list[int], token_text: list[str],
+    value_type: str, last: bool = False,
+) -> list[int]:
     """Generates the token ids of one parameter value, constrained by its type.
     Boolean stops on its own (once "true"/"false" is complete, the enum blocks
     everything). Number and string never stop alone — they need the terminator
@@ -88,8 +101,8 @@ def generate_value(model, ids, token_text, value_type, last=False) -> list[int]:
     """
     if value_type == "boolean":
         value_ids, _ = generate_free_field(
-        model, ids, token_text,
-        lambda full: enum_can_continue(full, ["true", "false"]),
+            model, ids, token_text,
+            lambda full: enum_can_continue(full, ["true", "false"]),
         )
         return value_ids
     if value_type == "number":
@@ -106,7 +119,10 @@ def generate_value(model, ids, token_text, value_type, last=False) -> list[int]:
             if chosen is None:
                 break
             next_id, next_logit = chosen
-            if num_is_complete(num_state(buf)) and logits[close_id] > next_logit:
+            if (
+                num_is_complete(num_state(buf))
+                and logits[close_id] > next_logit
+            ):
                 break
             value_ids_n.append(next_id)
             buf += token_text[next_id]
@@ -130,3 +146,4 @@ def generate_value(model, ids, token_text, value_type, last=False) -> list[int]:
             buf += token_text[next_id]
             ids = ids + [next_id]
         return value_ids_s
+    raise ValueError(f"Unknown value_type {value_type!r}")

@@ -1,20 +1,20 @@
-SIMPLE_ESCAPES = '"\\/bfnrt'          # os escapes de 1 char
-HEX = "0123456789abcdefABCDEF"        # dígitos hexadecimais
+SIMPLE_ESCAPES = '"\\/bfnrt'          # 1 char escapes
+HEX = "0123456789abcdefABCDEF"        # hex digits
 
 def str_state(buf: str) -> "str | None":
-    """None -> inválida; 'in' -> normal; 'esc'/'uni' -> escape incompleto."""
+    """None -> invalid; 'in' -> normal; 'esc'/'uni' -> incomplete escape."""
     i = 0
     while i < len(buf):
         ch = buf[i]
         if ch == "\\":
-            depois = buf[i + 1:]
-            if not depois:
+            after = buf[i + 1:]
+            if not after:
                 return "esc"
-            if depois[0] in SIMPLE_ESCAPES:
+            if after[0] in SIMPLE_ESCAPES:
                 i += 2
                 continue
-            if depois[0] == "u":
-                hex_part = depois[1:5]
+            if after[0] == "u":
+                hex_part = after[1:5]
                 if len(hex_part) < 4:
                     return "uni"
                 if not all(c in HEX for c in hex_part):

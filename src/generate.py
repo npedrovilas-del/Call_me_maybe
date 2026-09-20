@@ -5,6 +5,7 @@ from src.pipeline import generate_free_field
 from src.grammar_number import num_can_continue, num_state, num_is_complete
 from src.pipeline import generate_free_field, top_down_argmax
 from src.grammar_string import str_can_continue, str_state
+from src.models import FunctionDef
 
 GRAMMARS = {
     "number":  lambda full: num_can_continue(num_state(full)),
@@ -12,13 +13,14 @@ GRAMMARS = {
     "boolean": lambda full: enum_can_continue(full, ["true", "false"]),
 }
 
-def to_ids(model, texto: str) -> list[int]:
+
+def to_ids(model, text: str) -> list[int]:
     """Encodes a text into token ids, ready to append to the stream.
     The structure text (keys, quotes, braces) is known beforehand, so unlike
     the free zones we don't have to guess it token by token — encode() does
     the splitting for us.
     """
-    return model.encode(texto).tolist()[0]
+    return model.encode(text).tolist()[0]
 
 
 def decode_ids(ids: list[int], token_text: list[str]) -> str:
@@ -28,9 +30,21 @@ def decode_ids(ids: list[int], token_text: list[str]) -> str:
     """
     return "".join(token_text[i] for i in ids)
 
+def build_prompt(functions, prompt) -> str:
+    """Builds the first context based on the prompt to start
+    the machine generation output"""
+    system = (
+        "You will receive text to complete. Complete the JSON object:\n"
+        '{"prompt": <user request>, "name": ..., "parameters": {...}}.\n'
+        "Choose ONE of the functions above and fill the arguments correctly."
+    )
+    catalog = json.dumps([f.model_dump() for f in functions], indent=2)
+    user = "USER: " + prompt    
+    final = system + "\n\n" + catalog + "\n\n" + user
+    return final
 
-def generate_call(model, base_ids: list[int], prompt: str, token_text: list[str],
-                  func_name: str, functions: list[dict]) -> dict[str, object]:
+def generate_call(model, base_ids: list[int], prompt: str,
+                  functions: list[FunctionDef], token_text: list[str]) -> dict[str, object]:
     """Builds the output JSON for one prompt: forced structure + generated zones.
     The skeleton ('{"prompt":', keys, quotes, closing braces) is appended
     manually; the function name and each parameter value come from the model,
@@ -40,27 +54,28 @@ def generate_call(model, base_ids: list[int], prompt: str, token_text: list[str]
     ids = list(base_ids)
     ids += to_ids(model, '{"prompt":')
     ids += to_ids(model, json.dumps(prompt))
-    func = next(f for f in functions if f["name"] == func_name)
-    names = [f["name"] for f in functions]
+    names = [f.name for f in functions]
     ids += to_ids(model, ',"name":"')
     name_ids, _ = generate_free_field(
         model, ids, token_text,
         lambda full: enum_can_continue(full, names),
     )
     ids += name_ids
+    generated_name = decode_ids(name_ids, token_text)
+    func = next(f for f in functions if f.name == generated_name)
     ids += to_ids(model, '","parameters":{')
-    for i, key in enumerate(func["parameters"]):
+    for i, key in enumerate(func.parameters):
         if i > 0:
             ids += to_ids(model, ",")
         ids += to_ids(model, json.dumps(key) + ":")
         value_ids = generate_value(
             model, ids, token_text,
-            func["parameters"][key]["type"],
-            last=(i == len(func["parameters"]) - 1),
+            func.parameters[key].type,
+            last=(i == len(func.parameters) - 1),
         )
         ids += value_ids
     ids += to_ids(model, "}}")
-    out_text = decode_ids(ids[len(base_ids):], token_text)
+    out_text = decode_ids(ids[len(base_ids):], token_text)  
     return json.loads(out_text)
 
 def generate_value(model, ids, token_text, value_type, last=False) -> list[int]:

@@ -35,13 +35,13 @@ def build_token_text(path: str) -> list[str]:
     with open(path) as f:
         raw = json.load(f)
     m = Small_LLM_Model()
-    tamanho = len(m.get_logits_from_input_ids([0]))
-    token_text = [""] * tamanho
+    size = len(m.get_logits_from_input_ids([0]))
+    token_text = [""] * size
     for token, idx in raw.items():
         character = list(token)
         bytes_list = [byte_of[c] for c in character]
         text = bytes(bytes_list).decode("utf-8", "replace")
-        token_text[idx] = text #passa para o final
+        token_text[idx] = text
     return token_text
 
 
@@ -53,7 +53,7 @@ def get_token_text(model) -> list[str]:
     n_logits = len(model.get_logits_from_input_ids([0]))
     if len(token_text) != n_logits:
         raise ValueError(
-            f"token_text tem {len(token_text)} posições, "
-            f"mas o modelo devolve {n_logits} logits — abortar."
+            f"Token_text has {len(token_text)} positions, "
+            f"but the model return {n_logits} logits — abort."
         )
     return token_text

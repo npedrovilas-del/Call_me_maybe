@@ -52,7 +52,7 @@ BOARD: dict[str, dict[str, str]] = {
 
 ACCEPT: set[str] = {"X", "F", "I", "Z"} # the possible finals
 
-def num_state(text: str) -> Optional[str]: # Optional ou can be None
+def num_state(text: str) -> Optional[str]: # Optional or can be None
     """Returns and loops through the text to find if is valid the text"""
     state: Optional[str] = "S"
     for char in text:

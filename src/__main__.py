@@ -15,7 +15,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--functions_definition",
-        default="data/input/functions_definitions.json",
+        default="data/input/functions_definition.json",
     )
     parser.add_argument(
         "--input",

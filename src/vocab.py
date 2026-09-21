@@ -22,10 +22,6 @@ def bytes_to_unicode() -> dict[int, str]:
     return dict(zip(bs, [chr(c) for c in cs]))
 
 
-b2u = bytes_to_unicode()
-byte_of = {c: b for b, c in b2u.items()}
-
-
 def build_token_text(path: str) -> list[str]:
     """Builds the translation table: token_id -> real text.
     For each token in the vocab, converts its characters to bytes and decodes
@@ -33,6 +29,8 @@ def build_token_text(path: str) -> list[str]:
     disguise. The list has one slot per model logit (special tokens stay "").
     Returns a list[str] where token_text[id] = real text.
     Works like a decoder of the whole vocab"""
+    b2u = bytes_to_unicode()
+    byte_of = {c: b for b, c in b2u.items()}
     with open(path) as f:
         raw = json.load(f)
     m = Small_LLM_Model()

@@ -814,7 +814,10 @@ decode_ids would mix up token texts and the grammars would compare garbage
 (ANEXO J, trap 2).
 """
 
-from src.vocab import b2u, byte_of
+from src.vocab import bytes_to_unicode
+
+b2u = bytes_to_unicode()
+byte_of = {c: b for b, c in b2u.items()}
 
 
 def test_all_256_bytes_are_mapped() -> None:

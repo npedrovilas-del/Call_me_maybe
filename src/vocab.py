@@ -22,7 +22,7 @@ def bytes_to_unicode() -> dict[int, str]:
     return dict(zip(bs, [chr(c) for c in cs]))
 
 
-def build_token_text(path: str) -> list[str]:
+def build_token_text(path: str, size: int | None = None) -> list[str]:
     """Builds the translation table: token_id -> real text.
     For each token in the vocab, converts its characters to bytes and decodes
     them as UTF-8, so spaces/newlines appear as real text instead of the Ġ/Ċ
@@ -33,8 +33,8 @@ def build_token_text(path: str) -> list[str]:
     byte_of = {c: b for b, c in b2u.items()}
     with open(path) as f:
         raw = json.load(f)
-    m = Small_LLM_Model()
-    size = len(m.get_logits_from_input_ids([0]))
+    if size is None:
+        size = max(raw.values()) + 1
     token_text = [""] * size
     for token, idx in raw.items():
         character = list(token)
@@ -48,8 +48,8 @@ def build_token_text(path: str) -> list[str]:
 def get_token_text(model: Small_LLM_Model) -> list[str]:
     """Builds token_text once (cached) and checks its size against the model.
     The token_text is gonna be all the tokens already decoded to normal chr"""
-    token_text = build_token_text(model.get_path_to_vocab_file())
     n_logits = len(model.get_logits_from_input_ids([0]))
+    token_text = build_token_text(model.get_path_to_vocab_file(), n_logits)
     if len(token_text) != n_logits:
         raise ValueError(
             f"Token_text has {len(token_text)} positions, "

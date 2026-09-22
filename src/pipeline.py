@@ -28,7 +28,8 @@ def top_down_argmax(
     """
     order = np.argsort(-np.asarray(logits))
     for t in order:
-        if is_valid(buffer + token_text[int(t)]):
+        text = token_text[int(t)]
+        if text and is_valid(buffer + text):
             return int(t), logits[int(t)]
     return None
 

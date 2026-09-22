@@ -1,3 +1,0 @@
-[flake8]
-exclude = .venv,__pycache__,.mypy_cache,.pytest_cache,llm_sdk,demo_marco6.py,src/fake_model.py
-max-line-length = 79

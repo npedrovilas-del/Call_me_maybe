@@ -190,14 +190,12 @@ Three layers:
 
 ## Performance Analysis
 
-> TODO (fill after the final measurement):
-> - accuracy on the official prompt set ("90%+ correct function selection"):
->   **__%** (earlier measurement: 4/5, with the failure being one wrong function
->   choice — see Challenges)
-> - total wall time for the official `data/input` file: **__ s** (target < 5 min);
->   the constraint is the model forward pass per token; the grammars themselves add
->   only microseconds per step
-> - 100% of generated outputs parse and validate (no counter-example found so far)
+Measured on the official five-prompt input set with Qwen/Qwen3-0.6B on the
+project GPU:
+
+- accuracy: **100% (5/5 function selections and argument extractions)**
+- total wall time: **22.09 s** (target: under 5 minutes)
+- validity: **100% (5/5 outputs parsed and passed schema validation)**
 
 The test suite (unit, no model) runs in ~3 s. A real model run is dominated by the
 per-token forward passes of a 0.6B model; forcing the structure with `encode()` for

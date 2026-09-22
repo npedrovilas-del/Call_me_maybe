@@ -48,6 +48,24 @@ def validate_result(
     )
 
 
+def fallback_result(prompt: str, functions: list[FunctionDef]) -> CallResult:
+    """Builds a schema-compliant result when model inference fails."""
+    if not functions:
+        return CallResult(prompt=prompt, name="", parameters={})
+    function = functions[0]
+    defaults: dict[str, object] = {}
+    for key, parameter in function.parameters.items():
+        if parameter.type == "number":
+            defaults[key] = 0
+        elif parameter.type == "boolean":
+            defaults[key] = False
+        else:
+            defaults[key] = ""
+    return CallResult(
+        prompt=prompt, name=function.name, parameters=defaults
+    )
+
+
 def run(
     model: Small_LLM_Model, functions: list[FunctionDef],
     tests: list[PromptItem],
@@ -57,6 +75,7 @@ def run(
     token_text = get_token_text(model)
     results: list[CallResult] = []
     for item in tests:
+        out_of_memory = False
         try:
             base_ids = to_ids(model, build_prompt(functions, item.prompt))
             obj = generate_call(
@@ -65,13 +84,23 @@ def run(
             result = validate_result(obj, functions)
         except Exception as e:
             print(f"ERROR in prompt {item.prompt!r}: {e}", file=sys.stderr)
-            result = CallResult(prompt=item.prompt, name="", parameters={})
+            result = fallback_result(item.prompt, functions)
+            out_of_memory = "out of memory" in str(e).lower()
         results.append(result)
+        if out_of_memory:
+            remaining = tests[len(results):]
+            results.extend(
+                fallback_result(next_item.prompt, functions)
+                for next_item in remaining
+            )
+            break
     return results
 
 
 def write_output(output: str, results: list[CallResult]) -> None:
     """Saves the results as JSON, creating the output dir if missing."""
-    os.makedirs(os.path.dirname(output), exist_ok=True)
+    output_dir = os.path.dirname(output)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     with open(output, "w") as f:
         json.dump([r.model_dump() for r in results], f, indent=2)

@@ -63,6 +63,7 @@ class Small_LLM_Model:
         self._model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=self._dtype,
+            attn_implementation="sdpa",
             device_map="auto" if self._device == "cuda" else None,
             trust_remote_code=trust_remote_code,
         )
@@ -93,7 +94,9 @@ class Small_LLM_Model:
         """
         input_tensor = torch.tensor([input_ids], device=self._device, dtype=torch.long)
         with torch.no_grad():
-            out = self._model(input_ids=input_tensor)
+            out = self._model(
+                input_ids=input_tensor, use_cache=False, logits_to_keep=1
+            )
         # Get logits for the last token in the sequence for the batch (batch size 1)
         logits = out.logits[0, -1].tolist()
         return [float(x) for x in logits]

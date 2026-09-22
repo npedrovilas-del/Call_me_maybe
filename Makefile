@@ -1,9 +1,16 @@
+export UV_CACHE_DIR := /goinfre/$(USER)/uv-cache
+export HF_HOME := /goinfre/$(USER)/hf-cache
+
 install:
+	mkdir -p $(UV_CACHE_DIR) $(HF_HOME)
 	uv sync
 
 run:
-	uv run python -m src
-
+	mkdir -p $(UV_CACHE_DIR) $(HF_HOME)
+	uv run python -m src \
+		--functions_definition data/input/functions_definition.json \
+		--input data/input/function_calling_tests.json \
+		--output data/output/function_calling_results.json
 debug:
 	uv run python -m pdb -m src
 

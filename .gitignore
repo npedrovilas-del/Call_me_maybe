@@ -19,6 +19,7 @@ llm_sdk_extracted/
 # Scripts de verificação locais (não fazem parte do projeto)
 check_vocab.py
 check_cache.py
+session_changes.txt
 
 # Testes, fake model e demos (não fazem parte da entrega final; ver Marco 9)
 src/fake_model.py

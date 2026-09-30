@@ -1,13 +1,36 @@
-from typing import Literal
+from pydantic import BaseModel, Field, field_validator
 
-from pydantic import BaseModel, Field
+
+Familly: dict[str, str] = {
+    "number": "number", "integer": "number", "int": "number",
+    "float": "number", "double": "number",
+    "string": "string", "str": "string",
+    "boolean": "boolean", "bool": "boolean",
+}
 
 
 class ParamDef(BaseModel):
     """Define a function parameter's type and optional description"""
-    # Restrict to one of this stings the parameter type
-    type: Literal["number", "string", "boolean"]
+    # Accepts synonyms (integer, int, float, bool...) but always
+    # normalizes to one of the 3 families the grammar can generate
+    type: str
     description: str | None = None
+
+    @field_validator("type")
+    @classmethod
+    def normalize_type(cls, value: str) -> str:
+        """Normalize the declared type to a supported family.
+
+        Raises a clear ValueError for truly unknown types so the
+        loader can report it gracefully instead of crashing.
+        """
+        family = Familly.get(value.strip().lower())
+        if family is None:
+            raise ValueError(
+                f"Unsupported parameter type: {value!r}. "
+                f"Supported: {sorted(set(Familly))}"
+            )
+        return family
 
 
 class ReturnDef(BaseModel):

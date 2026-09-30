@@ -12,6 +12,7 @@ run:
 		--input data/input/function_calling_tests.json \
 		--output data/output/function_calling_results.json
 debug:
+	mkdir -p $(UV_CACHE_DIR) $(HF_HOME)
 	uv run python -m pdb -m src
 
 clean:
@@ -23,5 +24,5 @@ lint:
 	      --disallow-untyped-defs --check-untyped-defs
 
 lint-strict:
-	flake8 .
-	mypy . --strict
+	uv run flake8 .
+	uv run mypy . --strict

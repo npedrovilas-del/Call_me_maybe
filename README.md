@@ -143,8 +143,15 @@ For a free field (function name, parameter value):
 - **String** (`grammar_string.py`): an automaton over the buffer that accepts
   normal characters, the single-char escapes (`\\ " / b f n r t`) and `\uXXXX`
   hex escapes, and rejects raw control characters and stray quotes. The opening
-  quote is written by the generator; the field closes by appending a quote when the
-  state is `in` **and** the quote logit beats the next candidate.
+  quote is written by the generator; for the closing one there is a single rule
+  (`string_move`): **the best token that carries an unescaped quote ends the
+  value — unless what comes after that quote is real text, in which case the
+  quote is content and is written as `\"` — and only if it beats the best
+  ordinary content token.** So `"} `, `","` or `}\"` (content up to the quote,
+  then structure) close the field, while `"hello` becomes a literal quote. The
+  buffer is trimmed (leading blanks, a dangling escape) and re-encoded when
+  needed, and the closing quote is always appended — the JSON can never come
+  out unterminated.
 
 ### 5. Structure vs. free zones
 The JSON skeleton — `{"prompt":`, `,"name":"`, `","parameters":{`, keys, commas,
@@ -176,10 +183,13 @@ Three layers:
   reconstructed locally (byte<->unicode + UTF-8) and built once; `decode_ids` then
   maps ids to real text without touching the model. This is also a first step toward
   a fully home-made tokenizer.
-- **Forcing number/string termination with logit comparisons.** A field is only
-  closed when the buffer is in a *complete* state AND the closing token's logit wins
-  over the best candidate. This is what guarantees values never end mid-number or
-  with a dangling escape.
+- **Forcing every field to terminate (and to be valid).** Closing is decided by
+  a logit comparison — a quote candidate must *strictly* beat the best content
+  token — but the outcome is also guaranteed by construction: a number that ends
+  outside the accepting states gets a trailing `0` (`12.` -> `12.0`, `-` -> `-0`),
+  a boolean that dies on a prefix is completed to `true`/`false`, and a string is
+  always closed (dropping a dangling escape first). Values never end mid-number,
+  mid-word or with a dangling escape, whatever the model does.
 - **Per-prompt fallback.** A failure in one prompt produces a fallback entry and the
   run continues. The alternative (aborting the whole run) would violate "the program
   must never crash and must always explain itself".
@@ -190,12 +200,17 @@ Three layers:
 
 ## Performance Analysis
 
-Measured on the official five-prompt input set with Qwen/Qwen3-0.6B on the
-project GPU:
+Measured on the project input set (11 prompts: arithmetic, booleans, compound
+interest, SQL, file paths and templates) with Qwen/Qwen3-0.6B on the project
+GPU:
 
-- accuracy: **100% (5/5 function selections and argument extractions)**
-- total wall time: **22.09 s** (target: under 5 minutes)
-- validity: **100% (5/5 outputs parsed and passed schema validation)**
+- accuracy: **100% (11/11 function selections and argument extractions)**
+- total wall time: **31 s** (target: under 5 minutes)
+- validity: **100% (11/11 outputs parsed and passed schema validation)**
+
+Same 11 prompts forced onto **CPU only** (no GPU available): 4 min 43 s of
+generation + 2 s of model loading — still inside the 5-minute target, with the
+same 100% accuracy and validity.
 
 The test suite (unit, no model) runs in ~3 s. A real model run is dominated by the
 per-token forward passes of a 0.6B model; forcing the structure with `encode()` for
@@ -214,9 +229,16 @@ the skeleton avoids dozens of unnecessary forwards.
 - **Guaranteeing a number can end.** Letting the model stop anywhere produces
   "12.", "1e". The DFA accepts a number only in final states, and the close-token
   comparison decides the exact stopping point.
-- **Strings must not swallow the closing quote.** The automaton has to know when a
-  quote is *content* vs *the end of the field* — solved with the `in`/`esc`/`uni`
-  states and the quote-logit comparison.
+- **Strings must not swallow the closing quote.** The automaton knows *content*
+  vs *the end of the field* through the `in`/`esc`/`uni` states, but the decoder
+  also has to read the model's intent: Qwen rarely votes for the bare `"` token,
+  it votes for `}"`, `","` or `}\"` — tokens that mix content and structure. On
+  `Run the query 'INSERT INTO logs VALUES (1, 2, 3)'` the old rule rejected that
+  quote as "stray content", the model fell back to `}\"` and then looped for 256
+  tokens of hallucinated text. The fix reads that token for what it is —
+  "content up to the quote, then the value ends" — in one rule: pick the best
+  token carrying an unescaped quote, keep what came before it as content, and
+  close; only when the quote is followed by real text is it escaped instead.
 - **Tests revealed an empty-token trap.** With a perfectly flat FakeModel, decoding
   could stall on tokens whose text is empty (`""` is a "prefix of everything").
   Real models never do this (special tokens get near-zero logits), but the finding

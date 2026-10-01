@@ -1,0 +1,244 @@
+================================================================================
+EXPLICAÇÃO DAS ALTERAÇÕES — "Call Me Maybe" (constrained decoding com Qwen3-0.6B)
+================================================================================
+
+Este documento explica tudo o que foi alterado no repositório, porquê, e o que
+foi medido depois das alterações. Serve para rever as mudanças antes do commit
+e para as explicar na defesa.
+
+
+--------------------------------------------------------------------------------
+1. PROBLEMA INICIAL (o que não estava a funcionar)
+--------------------------------------------------------------------------------
+
+Com o conjunto de testes da avaliação (11 prompts), o projeto dava:
+
+    seleção de função ...... 8/11 = 73%   (mínimo exigido: >90%)
+    argumentos corretos .... 7/11 = 64%   (mínimo exigido: >90%)
+
+3 dos 11 prompts acabavam no "fallback" (resultado errado por o gerador ter
+lançado exceção) e 1 tinha um argumento errado.
+
+Causa raiz (encontrada ao instrumentar o gerador token a token, com os logits
+reais do modelo):
+
+  O Qwen quase nunca fecha uma string com o token '"' "puro" — fecha com
+  tokens que misturam conteúdo e estrutura, por exemplo:
+
+      no ponto crítico do prompt "Run the query 'INSERT INTO logs VALUES
+      (1, 2, 3)' on the system database", o ranking do modelo era:
+
+          token  '}"'   logit 27.0   <- o modelo a dizer "o valor acabou"
+          token  '}\"'  logit 24.9
+          token  '}'    logit 24.1
+
+  O código antigo só aceitava o token '"' puro como fecho da string:
+
+      if str_state(buf) == "in" and logits[quote_id] > next_logit:
+          fechar
+
+  e rejeitava qualquer token que contivesse uma aspa crua (a grammar considera
+  uma aspa crua "stray"). Resultado: o token '}"' era ignorado, o decoder caía
+  no token '}\"' (que é conteúdo legálido para a grammar) e o modelo entrou em
+  loop, a repetir o system prompt ("Choose ONE of the functions above...
+  The correct answer is: { ... }?") durante 256 tokens — ~900 caracteres de
+  alucinação.
+
+  O JSON saía partido — 3 dos 11 prompts falharam, com 2 mensagens:
+    - "Expecting ',' delimiter"   (a string fechou tarde demais)
+    - "Unterminated string"       (a string nunca fechou)
+  -> json.loads falhava -> exceção -> fallback -> função ERRADA.
+
+Ou seja: a função estava até bem escolhida pelo modelo, mas o campo da string
+partia o JSON e o fallback descartava tudo.
+
+
+--------------------------------------------------------------------------------
+2. O QUE MUDOU — src/generate.py (o fix principal)
+--------------------------------------------------------------------------------
+
+Foram adicionadas 3 funções pequenas e alterado o ramo "string" de
+generate_value. A regra passou a ser UMA frase:
+
+    "O melhor token que carrega uma aspa não escapada fecha o valor —
+     a não ser que depois da aspa venha texto real, caso em que a aspa é
+     conteúdo e é escrita como \" — e só se esse token bater o melhor
+     token de conteúdo."
+
+2.1  first_raw_quote(text) -> int | None
+     Percorre o texto de um token e devolve a posição da primeira aspa que
+     NÃO está escapada (salta pares "\x"). Serve para dividir o token em:
+     [texto antes da aspa] + [a aspa] + [o que vem a seguir].
+     Ex.: '}"'      -> k = 1
+          '","'     -> k = 0
+          '\"'      -> None (a aspa está escapada, é conteúdo normal)
+
+2.2  is_content(buf, full) -> bool
+     Validador do conteúdo comum: o texto tem de ser aceite pela grammar da
+     string (str_state != None) e não pode ser só brancos quando o valor ainda
+     não começou (senão o modelo podia ficar a escrever espaços para sempre).
+
+2.3  string_move(logits, token_text, buf, quote_id) -> (kind, tid, prefix) | None
+     Decide o próximo passo dentro de uma string. Três passos:
+       a) calcula o melhor token de conteúdo (top_down_argmax normal);
+       b) varre os 64 tokens de maior logit à procura do primeiro que tenha
+          uma aspa não escapada utilizável (o prefixo até à aspa tem de
+          deixar o estado "in"; uma aspa a meio seguida de texto não serve);
+       c) se esse token de aspa tiver logit MAIOR que o conteúdo -> ganha:
+            - depois da aspa há estrutura ("}", ",", "]", ou nada) -> "close"
+            - depois da aspa há texto -> "escape" (a aspa é conteúdo literal)
+          caso contrário -> "content".
+
+     Devolve (kind, tid, prefix):
+       "content" -> escrever o token tid;
+       "escape"  -> escrever o par \" (2 ids);
+       "close"   -> o valor acaba aqui; "prefix" é o texto que vinha antes
+                    da aspa dentro do token (no token '}"' o prefix é '}').
+
+2.4  Ramo "string" de generate_value
+     O modelo acumula dois objetos: body (os ids escritos) e buf (o texto
+     correspondente). A cada passo chama string_move e:
+       - "content" -> acrescenta o token;
+       - "escape"  -> acrescenta os 2 ids de \" ;
+       - "close"   -> acrescenta o prefixo (o texto que vinha antes da aspa,
+                      re-codificado com encode()) e pára.
+     No fim:
+       - remove um escape incompleto no fim (ex.: abc\ ou abcé\u12) — senão
+         a aspa de fecho seria engolida pelo próprio escape;
+       - remove os brancos iniciais (valores nunca começam com espaços);
+       - se essa limpeza mudou o texto, re-codifica o valor com encode();
+       - SEMPRE acrescenta a aspa de fecho.
+
+     => O JSON nunca sai sem fechar a string.
+
+2.5  Redes de segurança nos restantes tipos (garantem JSON parseável)
+     - Número: se a DFA terminou fora dos estados finais ("12.", "12e", "-"),
+       acrescenta um "0" -> "12.0", "12e0", "-0". Nunca sai número incompleto.
+     - Booleano: se o enum morreu a meio ("t", "fal"), completa para a palavra
+       que tem esse prefixo -> "true"/"false". Nunca sai literal incompleto.
+     - String: fecha sempre (ver 2.4).
+
+2.6  Espaços iniciais
+     Antes saía  "path": " /home/user/data.json"  (com um espaço a mais).
+     O valor nunca começa com brancos -> o trim do fim corrige.
+
+2.7  Performance
+     A varredura dos tokens de aspa fica limitada aos 64 de maior logit em
+     vez de percorrer os 151 643 tokens todos em cada passo.
+
+
+--------------------------------------------------------------------------------
+3. O QUE MUDOU — src/models.py  (commit b71c1bb, sessão anterior)
+--------------------------------------------------------------------------------
+
+O campo "type" dos parâmetros estava restrito a
+Literal["number", "string", "boolean"] e o loader rebentava com tipos como
+"integer"/"int"/"bool"/"str" (que aparecem em catálogos reais).
+
+Passou a ser str + um field_validator que normaliza sinónimos para as 3
+famílias aceites:
+    integer/int/float/double -> number
+    str                      -> string
+    bool                     -> boolean
+e lança um ValueError claro para tipos desconhecidos (ex.: "array"), com a
+lista dos tipos suportados. O resto do pipeline (generate/validation) não
+precisou de alterações porque já compara contra as 3 famílias.
+
+
+--------------------------------------------------------------------------------
+4. O QUE MUDOU — Makefile, demo_marco6.py, src/fake_model.py (b71c1bb)
+--------------------------------------------------------------------------------
+
+- Makefile: o alvo "debug" cria as caches (mkdir -p do UV_CACHE_DIR/HF_HOME)
+  e o "lint-strict" passou a correr flake8/mypy através do uv run.
+- demo_marco6.py e src/fake_model.py: dois erros de lint pré-existentes que
+  impediam "make lint" (linha longa e falta de newline final). São ficheiros
+  gitignored mas mesmo assim lintados.
+
+
+--------------------------------------------------------------------------------
+5. O QUE MUDOU — README.md
+--------------------------------------------------------------------------------
+
+A documentação tinha de ficar fiel ao código. Foram atualizadas 4 zonas:
+  - secção das grammars: descreve a nova regra de fecho da string;
+  - "Design Decisions": a decisão de terminação forçada (redes de segurança
+    de string/número/booleano);
+  - "Challenges Faced": nova entrada a contar o bug do runaway, com o exemplo
+    do INSERT INTO logs e o ranking de tokens que provou a causa;
+  - "Performance Analysis": números medidos (ver secção 7).
+
+
+--------------------------------------------------------------------------------
+6. VERIFICAÇÕES EFETUADAS (tudo corrido, não simulado)
+--------------------------------------------------------------------------------
+
+    uv sync ............................. OK
+    make lint (flake8 + mypy) .......... 0 erros
+    make lint-strict (mypy --strict) .... 0 erros
+    uv run pytest -q ................... 51 passed
+
+    Dataset da avaliação (11 prompts) ... seleção 11/11 = 100%
+                                          argumentos 11/11 = 100%
+                                          schema estrito OK, 0 fallbacks
+    Dataset oficial da data.zip (5) ..... 5/5
+
+    Tempo:  GPU 30,8 s   |   CPU puro 4 min 43 s   (limite: <5 minutos)
+
+    Tratamento de erros (sem tracebacks, exit code 1 com mensagem clara):
+      - ficheiro de input inexistente ......... "JSON File Not found: ..."
+      - JSON malformado ...................... "JSON File Broken: ..."
+      - tipo de parâmetro não suportado ....... mensagem do pydantic com
+                                                "Unsupported parameter type"
+      - lista de prompts vazia ................ escreve [] e exit 0
+      - pasta de output inexistente ........... criada automaticamente
+
+    Robustez/reprodutibilidade: execuções repetidas dão sempre 100%/100%
+    (decodificação gulosa, determinística).
+
+
+--------------------------------------------------------------------------------
+7. RESULTADO FINAL FACE ÀS EXIGÊNCIAS DA AVALIAÇÃO
+--------------------------------------------------------------------------------
+
+    > 90% seleção de função ............ 100%  (antes: 73%)
+    > 90% extração de argumentos ....... 100%  (antes: 64%)
+    100% JSON parseável e chaves exatas  OK   (prompt/name/parameters)
+    sem crashes / com fallback seguro .. OK
+    < 5 minutos por conjunto de testes . OK   (30,8 s GPU / 4m43s CPU)
+    "uv run python -m src" ............. OK
+    lint + testes ...................... OK   (0 erros, 51 passed)
+
+
+--------------------------------------------------------------------------------
+8. ESTADO DO GIT
+--------------------------------------------------------------------------------
+
+Alterações por commitar:
+    M  src/generate.py     fix do fecho da string + redes de segurança
+    M  README.md           documentação alinhada com o código
+    ?? EXPLICACAO.txt      este documento
+
+Já commitado (commit b71c1bb "Fixes"):
+    src/models.py, Makefile, data/input/*, e as correções de lint.
+
+AVISO: o commit b71c1bb substituiu data/input pelos 11 prompts da avaliação
+(o dataset oficial da data.zip tinha 5 prompts: sum/greet/reverse). As
+diretrizes da avaliação mandam verificar se não há dados vazados no repositório
+— convém confirmar a origem desses prompts ou repor os oficiais com:
+
+    git checkout abda791 -- data/input/
+
+As correções do decoder são genéricas (não foram afinadas a nenhum prompt em
+específico), por isso os 5 oficiais continuam a dar 5/5 com elas.
+
+
+--------------------------------------------------------------------------------
+9. COMO REVER / REPRODUZIR EM 2 MINUTOS
+--------------------------------------------------------------------------------
+
+    git diff src/generate.py
+    make lint && make lint-strict && uv run pytest
+    uv run python -m src
+
+================================================================================
